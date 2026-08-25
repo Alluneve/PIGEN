@@ -1,0 +1,8 @@
+## Interface: 120100
+## Title: PIGEN
+## Notes: Small addon to create and manage PI macros
+## Author: Alluneve
+## Version: 1.0.0
+## SavedVariables: PIGENDB
+
+PIGEN.lua
