@@ -65,6 +65,14 @@ local function BuildMacro(spec, target)
         end
     end
 
+    if db[spec.key].potion and db[spec.key].potionText ~= "" then
+        lines[#lines + 1] = "/use " .. db[spec.key].potionText
+    end
+
+    if db[spec.key].custom and db[spec.key].customText ~= "" then
+        lines[#lines + 1] = db[spec.key].customText
+    end
+
     lines[#lines + 1] =
         "/cast [@" .. target .. ",exists,nodead][@player,help,nodead] Power Infusion"
 
@@ -138,23 +146,99 @@ local function GenerateMacros()
 end
 
 
-local function AddCheckbox(category, spec, key, label, tooltip, default)
-    local setting = Settings.RegisterAddOnSetting(
-        category,
-        ADDON_NAME .. "_" .. spec.key .. "_" .. key,
-        key,
-        db[spec.key],
-        type(default),
-        label,
-        default
+local function CreateCheckbox(parent, label, x, y, getVal, setVal, tooltip)
+    local cb = CreateFrame(
+        "CheckButton",
+        nil,
+        parent,
+        "InterfaceOptionsCheckButtonTemplate"
     )
 
-    Settings.CreateCheckbox(
-        category,
-        setting,
+    cb:SetPoint("TOPLEFT", x, y)
+    cb.Text:SetText(label)
+    cb:SetChecked(getVal())
+
+    cb:SetScript("OnClick", function(self)
+        setVal(self:GetChecked())
+    end)
+
+    if tooltip then
+        cb:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(label)
+            GameTooltip:AddLine(tooltip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+
+        cb:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
+
+    return cb
+end
+
+
+local function CreateEditBox(parent, x, y, width, getVal, setVal)
+    local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+
+    eb:SetPoint("TOPLEFT", x, y)
+    eb:SetSize(width, 22)
+    eb:SetAutoFocus(false)
+    eb:SetText(getVal() or "")
+
+    eb:SetScript("OnEnterPressed", function(self)
+        setVal(self:GetText())
+        self:ClearFocus()
+    end)
+
+    eb:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+    end)
+
+    eb:SetScript("OnEditFocusLost", function(self)
+        setVal(self:GetText())
+    end)
+
+    return eb
+end
+
+
+local function AddCheckboxWithText(content, spec, key, label, tooltip, yOff)
+    local textKey = key .. "Text"
+
+    CreateCheckbox(
+        content,
+        label,
+        10,
+        yOff,
+        function()
+            return db[spec.key][key]
+        end,
+        function(value)
+            db[spec.key][key] = value
+        end,
         tooltip
     )
+
+    yOff = yOff - 30
+
+    CreateEditBox(
+        content,
+        40,
+        yOff,
+        420,
+        function()
+            return db[spec.key][textKey]
+        end,
+        function(value)
+            db[spec.key][textKey] = value
+        end
+    )
+
+    return yOff - 38
 end
+
 
 local function CreatePISetterMacro()
     if InCombatLockdown() then
@@ -176,49 +260,145 @@ local function CreatePISetterMacro()
     end
 end
 
-local function RegisterSettings()
-    local category, layout =
-        Settings.RegisterVerticalLayoutCategory("PIGEN")
 
-    layout:AddInitializer(
-        CreateSettingsListSectionHeaderInitializer("General")
+local function BuildOptionsPanel()
+    local panel = CreateFrame("Frame")
+    panel.name = ADDON_NAME
+
+    local scrollFrame = CreateFrame(
+        "ScrollFrame",
+        nil,
+        panel,
+        "UIPanelScrollFrameTemplate"
     )
 
-    layout:AddInitializer(
-        CreateSettingsButtonInitializer(
-            "PISETTER",
-            "Create",
-            CreatePISetterMacro,
-            "Creates a character-specific PISETTER macro.",
-            true
-        )
+    scrollFrame:SetPoint("TOPLEFT", 10, -10)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -28, 10)
+
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    content:SetSize(550, 1000)
+    scrollFrame:SetScrollChild(content)
+
+    local title = content:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontNormalLarge"
     )
+
+    title:SetPoint("TOPLEFT", 10, -10)
+    title:SetText("PIGEN")
+
+    local yOff = -45
+
+    local generalHeader = content:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontNormalLarge"
+    )
+
+    generalHeader:SetPoint("TOPLEFT", 10, yOff)
+    generalHeader:SetText("General")
+
+    yOff = yOff - 30
+
+    local piSetterButton = CreateFrame(
+        "Button",
+        nil,
+        content,
+        "UIPanelButtonTemplate"
+    )
+
+    piSetterButton:SetSize(160, 22)
+    piSetterButton:SetPoint("TOPLEFT", 10, yOff)
+    piSetterButton:SetText("Create PISETTER")
+    piSetterButton:SetScript("OnClick", CreatePISetterMacro)
+
+    yOff = yOff - 45
 
     for _, spec in ipairs(SPECS) do
-        layout:AddInitializer(
-            CreateSettingsListSectionHeaderInitializer(spec.label)
+        local specHeader = content:CreateFontString(
+            nil,
+            "OVERLAY",
+            "GameFontNormalLarge"
         )
 
-        AddCheckbox(
-            category,
-            spec,
-            "enabled",
+        specHeader:SetPoint("TOPLEFT", 10, yOff)
+        specHeader:SetText(spec.label)
+
+        yOff = yOff - 28
+
+        CreateCheckbox(
+            content,
             "Generate " .. spec.macro,
-            "Create and maintain the " .. spec.macro .. " macro.",
-            true
+            10,
+            yOff,
+            function()
+                return db[spec.key].enabled
+            end,
+            function(value)
+                db[spec.key].enabled = value
+            end,
+            "Create and maintain the " .. spec.macro .. " macro."
         )
+
+        yOff = yOff - 28
 
         for slot = 1, #SLOT_NAMES do
-            AddCheckbox(
-                category,
-                spec,
-                "slot" .. slot,
+            local slotKey = "slot" .. slot
+
+            CreateCheckbox(
+                content,
                 "Use " .. slot .. " - " .. SLOT_NAMES[slot],
-                "Add /use " .. slot .. " to " .. spec.macro .. ".",
-                false
+                30,
+                yOff,
+                function()
+                    return db[spec.key][slotKey]
+                end,
+                function(value)
+                    db[spec.key][slotKey] = value
+                end,
+                "Add /use " .. slot .. " to " .. spec.macro .. "."
             )
+
+            yOff = yOff - 25
         end
+
+        yOff = yOff - 5
+
+        yOff = AddCheckboxWithText(
+            content,
+            spec,
+            "potion",
+            "Potion",
+            "Add a potion line to " .. spec.macro .. ".",
+            yOff
+        )
+
+        yOff = AddCheckboxWithText(
+            content,
+            spec,
+            "custom",
+            "Custom",
+            "Add a custom line to " .. spec.macro .. ".",
+            yOff
+        )
+
+        yOff = yOff - 15
     end
+
+    content:SetSize(550, math.abs(yOff) + 30)
+
+    return panel
+end
+
+
+local function RegisterSettings()
+    local panel = BuildOptionsPanel()
+
+    local category = Settings.RegisterCanvasLayoutCategory(
+        panel,
+        ADDON_NAME
+    )
 
     Settings.RegisterAddOnCategory(category)
 
@@ -239,6 +419,13 @@ frame:SetScript("OnEvent", function(_, _, loadedAddon)
 
     for _, spec in ipairs(SPECS) do
         db[spec.key] = db[spec.key] or {}
+
+        if db[spec.key].enabled == nil then
+            db[spec.key].enabled = true
+        end
+
+        db[spec.key].potionText = db[spec.key].potionText or ""
+        db[spec.key].customText = db[spec.key].customText or ""
     end
 
     local category = RegisterSettings()
@@ -247,7 +434,7 @@ frame:SetScript("OnEvent", function(_, _, loadedAddon)
 
     SlashCmdList.PIGEN = function(message)
         if message == "options" then
-            Settings.OpenToCategory(category:GetID())
+            Settings.OpenToCategory(category.ID)
             return
         end
 
