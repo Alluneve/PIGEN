@@ -186,6 +186,7 @@ local function CreateEditBox(parent, x, y, width, getVal, setVal)
     eb:SetSize(width, 22)
     eb:SetAutoFocus(false)
     eb:SetText(getVal() or "")
+    eb:SetCursorPosition(0)
 
     eb:SetScript("OnEnterPressed", function(self)
         setVal(self:GetText())
