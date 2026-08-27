@@ -74,7 +74,7 @@ local function BuildMacro(spec, target)
     end
 
     lines[#lines + 1] =
-        "/cast [@" .. target .. ",exists,nodead][@player,help,nodead] Power Infusion"
+        "/cast [@" .. target .. ",exists,help,nodead][@player,help,nodead] Power Infusion"
 
     return table.concat(lines, "\n")
 end
