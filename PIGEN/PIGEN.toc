@@ -2,7 +2,7 @@
 ## Title: PIGEN
 ## Notes: Small addon to create and manage PI macros
 ## Author: Alluneve
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: PIGENDB
 
 PIGEN.lua

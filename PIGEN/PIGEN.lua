@@ -1,28 +1,9 @@
 local ADDON_NAME = "PIGEN"
 
 local db
+local DB_VERSION = 1
 
-local SLOT_NAMES = {
-    "Head",
-    "Neck",
-    "Shoulder",
-    "Shirt",
-    "Chest",
-    "Waist",
-    "Legs",
-    "Feet",
-    "Wrist",
-    "Hands",
-    "Finger 1",
-    "Finger 2",
-    "Trinket 1",
-    "Trinket 2",
-    "Back",
-    "Main Hand",
-    "Off Hand",
-    "Ranged",
-    "Tabard",
-}
+local lastLinkedItem
 
 local SPECS = {
     {
@@ -31,7 +12,7 @@ local SPECS = {
         macro = "ShadowPI",
     },
     {
-        key = "disco",
+        key = "discipline",
         label = "Discipline",
         macro = "DiscoPI",
     },
@@ -41,6 +22,65 @@ local SPECS = {
         macro = "HolyPI",
     },
 }
+
+local function createSavedLine(key, orderNumber, enabled, displayText, macroText, macroVariable, tooltip)
+    return {
+        key = key,
+        orderNumber = orderNumber,
+        enabled = enabled,
+        displayText = displayText,
+        macroText = macroText,
+        macroVariable = macroVariable,
+        tooltip = tooltip,
+    }
+end
+
+local DEFAULT_LINES = {
+    createSavedLine("head", 1, false, "Use Head", "/use 1", nil, "use the on use effect of your helm"),
+    createSavedLine("neck", 2, false, "Use Neck", "/use 2", nil, "use the on use effect of your necklace"),
+    createSavedLine("shoulder", 3, false, "Use Shoulder", "/use 3", nil, "use the on use effect of your shoulders"),
+    createSavedLine("shirt", 4, false, "Use Shirt", "/use 4", nil, "use the on use effect of your shirt"),
+    createSavedLine("chest", 5, false, "Use Chest", "/use 5", nil, "use the on use effect of your chest"),
+    createSavedLine("waist", 6, false, "Use Waist", "/use 6", nil, "use the on use effect of your belt"),
+    createSavedLine("legs", 7, false, "Use Legs", "/use 7", nil, "use the on use effect of your pants"),
+    createSavedLine("feet", 8, false, "Use Feet", "/use 8", nil, "use the on use effect of your feet"),
+    createSavedLine("wrist", 9, false, "Use Wrist", "/use 9", nil, "use the on use effect of your wrists"),
+    createSavedLine("hands", 10, false, "Use Hands", "/use 10", nil, "use the on use effect of your gloves"),
+    createSavedLine("finger1", 11, false, "Use Finger 1", "/use 11", nil, "use the on use effect of your first ring"),
+    createSavedLine("finger2", 12, false, "Use Finger 2", "/use 12", nil, "use the on use effect of your second ring"),
+    createSavedLine("trinket1", 13, false, "Use Trinket 1", "/use 13", nil, "use the on use effect of your first trinket"),
+    createSavedLine("trinket2", 14, false, "Use Trinket 2", "/use 14", nil,
+        "use the on use effect of your second trinket"),
+    createSavedLine("back", 15, false, "Use Back", "/use 15", nil, "use the on use effect of your cape"),
+    createSavedLine("mainhand", 16, false, "Use Main Hand", "/use 16", nil,
+        "use the on use effect of your mainhand or twohanded weapon"),
+    createSavedLine("offhand", 17, false, "Use Off Hand", "/use 17", nil, "use the on use effect of your offhand weapon"),
+    createSavedLine("ranged", 18, false, "Use Ranged", "/use 18", nil,
+        "use the on use effect of your ranged weapon (classic only)"),
+    createSavedLine("tabard", 19, false, "Use Tabard", "/use 19", nil, "use the on use effect of your tabard"),
+    createSavedLine("potion", 20, false, "Use Potion", "/use %s", "Minor Healing Potion", "use your potion"),
+    createSavedLine("custom1", 21, false, "Custom 1", "%s", "", "insert a custom macro line"),
+    createSavedLine("pi", 22, true, "Cast Power Infusion",
+        "/cast [@%s,exists,help,nodead][@player,help,nodead] Power Infusion", nil, "cast PI"),
+}
+
+local function createDefaultLines()
+    local lines = {}
+
+    for _, entry in ipairs(DEFAULT_LINES) do
+        table.insert(lines, {
+            key = entry.key,
+            orderNumber = entry.orderNumber,
+            enabled = entry.enabled,
+            displayText = entry.displayText,
+            macroText = entry.macroText,
+            macroVariable = entry.macroVariable,
+            tooltip = entry.tooltip,
+        })
+    end
+
+    return lines
+end
 
 
 local function FindCharacterMacro(name)
@@ -59,22 +99,31 @@ local function BuildMacro(spec, target)
         "#showtooltip Power Infusion",
     }
 
-    for slot = 1, #SLOT_NAMES do
-        if db[spec.key]["slot" .. slot] then
-            lines[#lines + 1] = "/use " .. slot
+    local savedLines = db[spec.key].lines
+
+    table.sort(savedLines, function(a, b)
+        return a.orderNumber < b.orderNumber
+    end)
+
+    for _, line in ipairs(savedLines) do
+        if line.enabled then
+            local macroLine
+
+            if line.key == "pi" then
+                macroLine = string.format(line.macroText, target)
+            elseif line.macroVariable ~= nil then
+                if line.macroVariable ~= "" then
+                    macroLine = string.format(line.macroText, line.macroVariable)
+                end
+            else
+                macroLine = line.macroText
+            end
+
+            if macroLine and macroLine ~= "" then
+                lines[#lines + 1] = macroLine
+            end
         end
     end
-
-    if db[spec.key].potion and db[spec.key].potionText ~= "" then
-        lines[#lines + 1] = "/use " .. db[spec.key].potionText
-    end
-
-    if db[spec.key].custom and db[spec.key].customText ~= "" then
-        lines[#lines + 1] = db[spec.key].customText
-    end
-
-    lines[#lines + 1] =
-        "/cast [@" .. target .. ",exists,help,nodead][@player,help,nodead] Power Infusion"
 
     return table.concat(lines, "\n")
 end
@@ -179,10 +228,24 @@ local function CreateCheckbox(parent, label, x, y, getVal, setVal, tooltip)
 end
 
 
-local function CreateEditBox(parent, x, y, width, getVal, setVal)
-    local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+local function CreateEditBox(parent, label, x, y, width, getVal, setVal, tooltip, appendItem)
+    local text = parent:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontNormal"
+    )
 
-    eb:SetPoint("TOPLEFT", x, y)
+    text:SetPoint("TOPLEFT", x, y)
+    text:SetText(label)
+
+    local eb = CreateFrame(
+        "EditBox",
+        nil,
+        parent,
+        "InputBoxTemplate"
+    )
+
+    eb:SetPoint("TOPLEFT", x, y - 20)
     eb:SetSize(width, 22)
     eb:SetAutoFocus(false)
     eb:SetText(getVal() or "")
@@ -201,43 +264,134 @@ local function CreateEditBox(parent, x, y, width, getVal, setVal)
         setVal(self:GetText())
     end)
 
+    if tooltip then
+        eb:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(label)
+            GameTooltip:AddLine(tooltip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+
+        eb:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
+
+    local itemButton = CreateFrame(
+        "Button",
+        nil,
+        parent,
+        "UIPanelButtonTemplate"
+    )
+
+    itemButton:SetSize(80, 22)
+    itemButton:SetPoint("LEFT", eb, "RIGHT", 8, 0)
+    itemButton:SetText(appendItem and "Add Item" or "Use Item")
+
+    itemButton:SetScript("OnClick", function()
+        if not lastLinkedItem then
+            print("PIGEN: No item has been shift-clicked yet.")
+            return
+        end
+
+        local value
+
+        if appendItem then
+            local current = eb:GetText()
+
+            if current == "" then
+                value = lastLinkedItem
+            else
+                value = current .. " " .. lastLinkedItem
+            end
+        else
+            value = lastLinkedItem
+        end
+
+        eb:SetText(value)
+        eb:SetCursorPosition(#value)
+        setVal(value)
+    end)
+
     return eb
 end
 
 
-local function AddCheckboxWithText(content, spec, key, label, tooltip, yOff)
-    local textKey = key .. "Text"
-
-    CreateCheckbox(
-        content,
+local function AddCheckboxWithText(parent, label, x, y, getVal, setVal, tooltip, textLabel, textWidth, getTextVal,
+                                   setTextVal, textTooltip, appendItem)
+    local cb = CreateCheckbox(
+        parent,
         label,
-        10,
-        yOff,
-        function()
-            return db[spec.key][key]
-        end,
-        function(value)
-            db[spec.key][key] = value
-        end,
+        x,
+        y,
+        getVal,
+        setVal,
         tooltip
     )
 
-    yOff = yOff - 30
-
     CreateEditBox(
-        content,
-        40,
-        yOff,
-        420,
-        function()
-            return db[spec.key][textKey]
-        end,
-        function(value)
-            db[spec.key][textKey] = value
-        end
+        parent,
+        textLabel,
+        x + 30,
+        y - 30,
+        textWidth,
+        getTextVal,
+        setTextVal,
+        textTooltip,
+        appendItem
     )
 
-    return yOff - 38
+    return cb
+end
+
+local function NormalizeLineOrder(lines)
+    for index, line in ipairs(lines) do
+        line.orderNumber = index
+    end
+end
+
+local function GetNextCustomNumber(lines)
+    local highest = 0
+
+    for _, line in ipairs(lines) do
+        local number = line.key:match("^custom(%d+)$")
+
+        if number then
+            highest = math.max(highest, tonumber(number))
+        end
+    end
+
+    return highest + 1
+end
+
+local function AddCustomLine(lines)
+    local number = GetNextCustomNumber(lines)
+
+    table.insert(
+        lines,
+        createSavedLine(
+            "custom" .. number,
+            #lines + 1,
+            false,
+            "Custom " .. number,
+            "%s",
+            "",
+            "Insert a custom macro line"
+        )
+    )
+
+    NormalizeLineOrder(lines)
+end
+
+local function DeleteCustomLine(lines, line)
+    for index, entry in ipairs(lines) do
+        if entry == line then
+            table.remove(lines, index)
+            break
+        end
+    end
+
+    NormalizeLineOrder(lines)
 end
 
 
@@ -248,7 +402,7 @@ local function CreatePISetterMacro()
     end
 
     local name = "PISETTER"
-    local body = "/pigen"
+    local body = "/pigen generate"
     local icon = C_Spell.GetSpellTexture(10060)
     local index = FindCharacterMacro(name)
 
@@ -289,18 +443,14 @@ local function BuildOptionsPanel()
     title:SetPoint("TOPLEFT", 10, -10)
     title:SetText("PIGEN")
 
-    local yOff = -45
-
     local generalHeader = content:CreateFontString(
         nil,
         "OVERLAY",
         "GameFontNormalLarge"
     )
 
-    generalHeader:SetPoint("TOPLEFT", 10, yOff)
+    generalHeader:SetPoint("TOPLEFT", 10, -45)
     generalHeader:SetText("General")
-
-    yOff = yOff - 30
 
     local piSetterButton = CreateFrame(
         "Button",
@@ -310,88 +460,372 @@ local function BuildOptionsPanel()
     )
 
     piSetterButton:SetSize(160, 22)
-    piSetterButton:SetPoint("TOPLEFT", 10, yOff)
+    piSetterButton:SetPoint("TOPLEFT", 10, -75)
     piSetterButton:SetText("Create PISETTER")
     piSetterButton:SetScript("OnClick", CreatePISetterMacro)
 
-    yOff = yOff - 45
+    local specsStartY = -120
+    local sections = {}
+
+    local function LayoutSections()
+        local yOff = specsStartY
+
+        for _, section in ipairs(sections) do
+            section:ClearAllPoints()
+            section:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOff)
+
+            yOff = yOff - section:GetHeight()
+        end
+
+        content:SetSize(
+            550,
+            math.abs(yOff) + 30
+        )
+    end
 
     for _, spec in ipairs(SPECS) do
-        local specHeader = content:CreateFontString(
+        local specSettings = db[spec.key]
+        local lines = specSettings.lines
+
+        local section = CreateFrame("Frame", nil, content)
+        section:SetSize(500, 100)
+
+        table.insert(sections, section)
+
+        local specHeader = section:CreateFontString(
             nil,
             "OVERLAY",
             "GameFontNormalLarge"
         )
 
-        specHeader:SetPoint("TOPLEFT", 10, yOff)
+        specHeader:SetPoint("TOPLEFT", 0, 0)
         specHeader:SetText(spec.label)
 
-        yOff = yOff - 28
-
         CreateCheckbox(
-            content,
+            section,
             "Generate " .. spec.macro,
-            10,
-            yOff,
+            0,
+            -28,
             function()
-                return db[spec.key].enabled
+                return specSettings.enabled
             end,
             function(value)
-                db[spec.key].enabled = value
+                specSettings.enabled = value
             end,
             "Create and maintain the " .. spec.macro .. " macro."
         )
 
-        yOff = yOff - 28
+        local addCustomButton = CreateFrame(
+            "Button",
+            nil,
+            section,
+            "UIPanelButtonTemplate"
+        )
 
-        for slot = 1, #SLOT_NAMES do
-            local slotKey = "slot" .. slot
+        addCustomButton:SetSize(140, 22)
+        addCustomButton:SetPoint("TOPLEFT", 20, -60)
+        addCustomButton:SetText("Add Custom Line")
 
-            CreateCheckbox(
-                content,
-                "Use " .. slot .. " - " .. SLOT_NAMES[slot],
-                30,
-                yOff,
-                function()
-                    return db[spec.key][slotKey]
-                end,
-                function(value)
-                    db[spec.key][slotKey] = value
-                end,
-                "Add /use " .. slot .. " to " .. spec.macro .. "."
-            )
+        local reorderHint = section:CreateFontString(
+            nil,
+            "OVERLAY",
+            "GameFontHighlightSmall"
+        )
 
-            yOff = yOff - 25
+        reorderHint:SetPoint("TOPLEFT", 20, -90)
+        reorderHint:SetText("Drag the :: handle or line name to reorder the generated macro lines.")
+
+        local lineContainer = CreateFrame("Frame", nil, section)
+        lineContainer:SetPoint("TOPLEFT", 20, -112)
+        lineContainer:SetSize(480, 1)
+
+        local rows = {}
+
+        local function LayoutRows()
+            local rowY = 0
+
+            for _, row in ipairs(rows) do
+                row:ClearAllPoints()
+                row:SetPoint(
+                    "TOPLEFT",
+                    lineContainer,
+                    "TOPLEFT",
+                    0,
+                    rowY
+                )
+
+                rowY = rowY - row:GetHeight()
+            end
         end
 
-        yOff = yOff - 5
+        local function UpdateSectionHeight()
+            local totalHeight = 0
 
-        yOff = AddCheckboxWithText(
-            content,
-            spec,
-            "potion",
-            "Potion",
-            "Add a potion line to " .. spec.macro .. ".",
-            yOff
-        )
+            for _, row in ipairs(rows) do
+                totalHeight = totalHeight + row:GetHeight()
+            end
 
-        yOff = AddCheckboxWithText(
-            content,
-            spec,
-            "custom",
-            "Custom",
-            "Add a custom line to " .. spec.macro .. ".",
-            yOff
-        )
+            lineContainer:SetHeight(math.max(totalHeight, 1))
+            section:SetHeight(127 + totalHeight)
 
-        yOff = yOff - 15
+            LayoutSections()
+        end
+
+        local function FindRowIndex(row)
+            for index, currentRow in ipairs(rows) do
+                if currentRow == row then
+                    return index
+                end
+            end
+        end
+
+        local function GetDragIndex(row)
+            local _, cursorY = GetCursorPosition()
+            cursorY = cursorY / UIParent:GetEffectiveScale()
+
+            local newIndex = 1
+
+            for _, otherRow in ipairs(rows) do
+                if otherRow ~= row then
+                    local _, otherY = otherRow:GetCenter()
+
+                    if otherY and cursorY < otherY then
+                        newIndex = newIndex + 1
+                    end
+                end
+            end
+
+            return newIndex
+        end
+
+        local function MoveRow(row, newIndex)
+            local oldIndex = FindRowIndex(row)
+
+            if not oldIndex or oldIndex == newIndex then
+                return
+            end
+
+            local movedRow = table.remove(rows, oldIndex)
+            local movedLine = table.remove(lines, oldIndex)
+
+            table.insert(rows, newIndex, movedRow)
+            table.insert(lines, newIndex, movedLine)
+
+            NormalizeLineOrder(lines)
+            LayoutRows()
+        end
+
+        local function MakeDragTarget(target, row)
+            target:RegisterForDrag("LeftButton")
+
+            target:SetScript("OnDragStart", function(self)
+                row:SetAlpha(0.5)
+
+                self:SetScript("OnUpdate", function()
+                    local newIndex = GetDragIndex(row)
+                    MoveRow(row, newIndex)
+                end)
+            end)
+
+            target:SetScript("OnDragStop", function(self)
+                self:SetScript("OnUpdate", nil)
+
+                row:SetAlpha(1)
+
+                NormalizeLineOrder(lines)
+                LayoutRows()
+            end)
+        end
+
+        local RefreshRows
+
+        RefreshRows = function()
+            for _, row in ipairs(rows) do
+                row:Hide()
+            end
+
+            rows = {}
+
+            table.sort(lines, function(a, b)
+                return a.orderNumber < b.orderNumber
+            end)
+
+            NormalizeLineOrder(lines)
+
+            for _, line in ipairs(lines) do
+                local entry = line
+                local isCustom = entry.key:match("^custom%d+$") ~= nil
+                local rowHeight = entry.macroVariable ~= nil and 75 or 25
+
+                local row = CreateFrame(
+                    "Frame",
+                    nil,
+                    lineContainer
+                )
+
+                row:SetSize(480, rowHeight)
+
+                local dragHandle = CreateFrame(
+                    "Button",
+                    nil,
+                    row
+                )
+
+                dragHandle:SetSize(20, 20)
+                dragHandle:SetPoint("TOPLEFT", 0, 0)
+
+                local dragText = dragHandle:CreateFontString(
+                    nil,
+                    "OVERLAY",
+                    "GameFontNormal"
+                )
+
+                dragText:SetPoint("CENTER")
+                dragText:SetText("::")
+
+                MakeDragTarget(dragHandle, row)
+
+                local checkbox
+
+                if entry.macroVariable ~= nil then
+                    checkbox = AddCheckboxWithText(
+                        row,
+                        entry.displayText,
+                        25,
+                        0,
+                        function()
+                            return entry.enabled
+                        end,
+                        function(value)
+                            entry.enabled = value
+                        end,
+                        entry.tooltip,
+                        "Value",
+                        340,
+                        function()
+                            return entry.macroVariable
+                        end,
+                        function(value)
+                            entry.macroVariable = value
+                        end,
+                        entry.tooltip,
+                        isCustom
+                    )
+                else
+                    checkbox = CreateCheckbox(
+                        row,
+                        entry.displayText,
+                        25,
+                        0,
+                        function()
+                            return entry.enabled
+                        end,
+                        function(value)
+                            entry.enabled = value
+                        end,
+                        entry.tooltip
+                    )
+                end
+
+                local labelDrag = CreateFrame(
+                    "Button",
+                    nil,
+                    row
+                )
+
+                labelDrag:SetPoint(
+                    "LEFT",
+                    checkbox.Text,
+                    "LEFT",
+                    0,
+                    0
+                )
+
+                labelDrag:SetSize(
+                    math.max(checkbox.Text:GetStringWidth(), 1),
+                    20
+                )
+
+                MakeDragTarget(labelDrag, row)
+
+                labelDrag:SetScript("OnClick", function()
+                    checkbox:Click()
+                end)
+
+                if entry.tooltip then
+                    labelDrag:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(entry.displayText)
+                        GameTooltip:AddLine(
+                            entry.tooltip,
+                            1,
+                            1,
+                            1,
+                            true
+                        )
+                        GameTooltip:Show()
+                    end)
+
+                    labelDrag:SetScript("OnLeave", function()
+                        GameTooltip:Hide()
+                    end)
+                end
+
+                if isCustom then
+                    local deleteButton = CreateFrame(
+                        "Button",
+                        nil,
+                        row,
+                        "UIPanelButtonTemplate"
+                    )
+
+                    deleteButton:SetSize(65, 22)
+                    deleteButton:SetPoint("TOPRIGHT", -5, 0)
+                    deleteButton:SetText("Delete")
+
+                    deleteButton:SetScript("OnClick", function()
+                        DeleteCustomLine(lines, entry)
+                        RefreshRows()
+                    end)
+                end
+
+                table.insert(rows, row)
+            end
+
+            LayoutRows()
+            UpdateSectionHeight()
+        end
+
+        addCustomButton:SetScript("OnClick", function()
+            AddCustomLine(lines)
+            RefreshRows()
+        end)
+
+        RefreshRows()
     end
 
-    content:SetSize(550, math.abs(yOff) + 30)
+    LayoutSections()
 
     return panel
 end
 
+local function DebugLines(specKey)
+    local spec = db[specKey]
+
+    if not spec then
+        print("PIGEN: Unknown spec: " .. specKey)
+        return
+    end
+
+    for _, line in ipairs(spec.lines) do
+        print(
+            line.orderNumber,
+            line.key,
+            tostring(line.enabled),
+            line.displayText
+        )
+    end
+end
 
 local function RegisterSettings()
     local panel = BuildOptionsPanel()
@@ -416,29 +850,74 @@ frame:SetScript("OnEvent", function(_, _, loadedAddon)
     end
 
     PIGENDB = PIGENDB or {}
-    db = PIGENDB
+
+    if PIGENDB.dbVersion ~= DB_VERSION then
+        PIGENDB = {
+            dbVersion = DB_VERSION
+        }
+    end
 
     for _, spec in ipairs(SPECS) do
-        db[spec.key] = db[spec.key] or {}
+        PIGENDB[spec.key] = PIGENDB[spec.key] or {}
+        if PIGENDB[spec.key].enabled == nil then
+            PIGENDB[spec.key].enabled = true
+        end
+        if not PIGENDB[spec.key].lines then
+            PIGENDB[spec.key].lines = createDefaultLines()
+        end
+    end
+    db = PIGENDB
 
-        if db[spec.key].enabled == nil then
-            db[spec.key].enabled = true
+    hooksecurefunc("HandleModifiedItemClick", function(link)
+        if not link or not link:find("|Hitem:", 1, true) then
+            return
         end
 
-        db[spec.key].potionText = db[spec.key].potionText or ""
-        db[spec.key].customText = db[spec.key].customText or ""
-    end
+        local itemName = C_Item.GetItemInfo(link)
+
+        if itemName then
+            lastLinkedItem = itemName
+        end
+    end)
 
     local category = RegisterSettings()
 
     SLASH_PIGEN1 = "/pigen"
 
     SlashCmdList.PIGEN = function(message)
-        if message == "options" then
+        local command, args = message:match("^(%S*)%s*(.-)$")
+
+        if command == "options" or command == "settings" then
             Settings.OpenToCategory(category.ID)
             return
         end
 
-        GenerateMacros()
+        if command == "debug" then
+            local debugCommand, debugArgs = args:match("^(%S*)%s*(.-)$")
+
+            if debugCommand == "lines" then
+                DebugLines(debugArgs ~= "" and debugArgs or "shadow")
+                return
+            end
+            if debugCommand == "item" then
+                print("PIGEN last clicked item" .. (lastLinkedItem or "none"))
+            end
+
+            print("PIGEN debug commands:")
+            print("/pigen debug lines [shadow|discipline|holy]")
+            print("/pigen debug item")
+            return
+        end
+
+        if command == "generate" then
+            GenerateMacros()
+            return
+        end
+
+        print("PIGEN commands:")
+        print("/pigen debug")
+        print("/pigen generate")
+        print("/pigen options")
+        print("/pigen settings")
     end
 end)
